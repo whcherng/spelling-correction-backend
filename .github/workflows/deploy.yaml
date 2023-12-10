@@ -1,0 +1,56 @@
+name: Deploy App to containerized web app
+on: [push, workflow_dispatch]
+
+env:
+  IMAGE_NAME: flask-demo
+  KEY_VAULT_SECRET_NAME_ACR_USERNAME: "acr-username"
+  KEY_VAULT_SECRET_NAME_ACR_PASSWORD: "acr-password1"
+  KEY_VAULT_NAME: "lucacb1-keyvault1"
+  REGISTRY_LOGIN_SERVER: "lucacb1.azurecr.io"
+  WEB_APP_NAME: "lucacb1-webapp"
+  REGISTRY_USERNAME: "lucacb1"
+  REGISTRY_PASSWORD: "RBpz48JHIf0mR6WhygjrRcpGNRTLWNUUcG21SW6DB2+ACRDF3D6j"
+  DOCKER_REGISTRY_SERVER_URL: "lucacb1.azurecr.io"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # checkout the repo
+      - name: "Checkout Github Action"
+        uses: actions/checkout@main
+
+      - name: "Login via Azure CLI"
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: "Get docker registry credentials from Azure Key Vault"
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            echo "REGISTRY_USERNAME=$(az keyvault secret show --name ${{ env.KEY_VAULT_SECRET_NAME_ACR_USERNAME }} --vault-name ${{ env.KEY_VAULT_NAME }} --query value -o tsv)" >> $GITHUB_ENV
+            echo "REGISTRY_PASSWORD=$(az keyvault secret show --name ${{ env.KEY_VAULT_SECRET_NAME_ACR_PASSWORD }} --vault-name ${{ env.KEY_VAULT_NAME }} --query value -o tsv)" >> $GITHUB_ENV
+
+      - name: "Login Docker Registry"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY_LOGIN_SERVER }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Set image version
+        id: image-version
+        run: echo "::set-output name=version::$(date +'%Y.%m.%d.%H.%M')"
+
+      - name: "Build and push image"
+        run: |
+          docker build . -t ${{ env.DOCKER_REGISTRY_SERVER_URL }}/${{env.IMAGE_NAME}}:${{ steps.image-version.outputs.version }}
+          docker build . -t ${{ env.DOCKER_REGISTRY_SERVER_URL }}/${{env.IMAGE_NAME}}:latest
+          docker push ${{ env.DOCKER_REGISTRY_SERVER_URL }}/${{env.IMAGE_NAME}}:${{ steps.image-version.outputs.version }}
+          docker push ${{ env.DOCKER_REGISTRY_SERVER_URL }}/${{env.IMAGE_NAME}}:latest
+
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.WEB_APP_NAME }}
+          images: "${{env.DOCKER_REGISTRY_SERVER_URL}}/${{env.IMAGE_NAME}}:latest"
