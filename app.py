@@ -21,7 +21,7 @@ def hello():
    text = request.get_json()
 
    if text:
-       return jsonify({'data': text })
+       return jsonify({'data': text})
    else:
        return jsonify({'message': 'please send some text'})
 
