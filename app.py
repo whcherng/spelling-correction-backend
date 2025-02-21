@@ -17,7 +17,7 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 @app.route('/grammar-check', methods=['POST'])
-def hello():
+def grammar_check():
    text = request.get_json()
 
    if text:
@@ -26,7 +26,7 @@ def hello():
        return jsonify({'message': 'please send some text'})
 
 @app.route('/sentiment-analysis', methods=['POST'])
-def hello():
+def sentiment_analysis():
    text = request.get_json()
 
    if text:
