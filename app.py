@@ -25,6 +25,14 @@ def hello():
    else:
        return jsonify({'message': 'please send some text'})
 
+@app.route('/sentiment-analysis', methods=['POST'])
+def hello():
+   text = request.get_json()
+
+   if text:
+       return jsonify({'data': text})
+   else:
+       return jsonify({'message': 'please send some text'})
 
 if __name__ == '__main__':
    app.run()
