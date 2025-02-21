@@ -1,7 +1,7 @@
 import os
 
 from flask import (Flask, redirect, render_template, request,
-                   send_from_directory, url_for)
+                   send_from_directory, url_for, jsonify)
 
 app = Flask(__name__)
 
@@ -18,14 +18,12 @@ def favicon():
 
 @app.route('/grammar-check', methods=['POST'])
 def hello():
-   name = request.form.get('name')
+   text = request.get_json()
 
-   if name:
-       print('Request for hello page received with name=%s' % name)
-       return render_template('hello.html', name = name)
+   if text:
+       return jsonify({'data': text })
    else:
-       print('Request for hello page received with no name or blank name -- redirecting')
-       return redirect(url_for('index'))
+       return jsonify({'message': 'please send some text'})
 
 
 if __name__ == '__main__':
