@@ -133,5 +133,3 @@ dmypy.json
 /.idea/spelling-correction-backend.iml
 /.idea/vcs.xml
 /.idea/
-
-pretrained_model.pkl

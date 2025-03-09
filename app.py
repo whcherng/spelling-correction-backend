@@ -1,142 +1,122 @@
 import os
 import pickle
-import requests
-import io
 import re
+import difflib
+from concurrent.futures import ThreadPoolExecutor
 from nltk import edit_distance
-
-from flask import (Flask, redirect, render_template, request,
-                   send_from_directory, url_for, jsonify)
+from flask import Flask, render_template, request, send_from_directory, jsonify
 
 app = Flask(__name__)
 
-PICKLE_FILE_URL = "https://tp080497.blob.core.windows.net/spelling-correction-container/pretrained_model.pkl"
+# Load pre-trained language model
+with open("pretrained_model.pkl", "rb") as f:
+    unigram_fd, bigram_cfd = pickle.load(f)
 
-# Global variable to store the loaded pickle object
-loaded_pickle_data = None
-
-def load_pickle_at_startup():
-    """Download and load the pickle file when the app starts."""
-    global loaded_pickle_data
-
-    try:
-        response = requests.get(PICKLE_FILE_URL)
-        response.raise_for_status()  # Raise an error for bad responses
-
-        # Load the pickle file into a Python object
-        loaded_pickle_data = pickle.load(io.BytesIO(response.content))
-        print("Pickle file loaded successfully at startup.")
-    except Exception as e:
-        print(f"Error loading pickle file at startup: {e}")
-
-# Call this function when the app starts
-load_pickle_at_startup()
-
-def generate_suggestions(word, correct_word, max_distance=2):
-    suggestions = []
-    for suggestion in correct_word:
-        distance = edit_distance(word, suggestion, transpositions=True)
-        if distance <= max_distance:
-            suggestions.append((suggestion, distance))
-    # Sort by edit distance first
-    return [c[0] for c in sorted(suggestions, key=lambda x: x[1])][:100]
+correct_word_set = set(unigram_fd.keys())  # Fast lookup
+top_common_words = set(w for w, _ in unigram_fd.most_common(int(len(unigram_fd) * 0.3)))  # Top 30%
 
 
-# Calculate the probability with corpus validation
-def calc_prob(word, prev_word, unigram_fd, bigram_cfd, vocab_size):
-    # Check if word exists in corpus file
-    if word not in unigram_fd:
-        return 0.0  # Treat OOV words as invalid
+def generate_suggestions(word):
+    """Get up to 5 close matches for a given word."""
+    return difflib.get_close_matches(word, correct_word_set, n=5, cutoff=0.7)
 
-    # Unigram probability
+
+def calc_prob(word, prev_word, vocab_size):
+    """Calculate probability using unigram and bigram data."""
     unigram_prob = unigram_fd[word] / unigram_fd.N()
+    bigram_prob = unigram_prob  # Default to unigram
 
-    # Bigram probability if context exists
     if prev_word and prev_word in bigram_cfd:
         bigram_prob = (bigram_cfd[prev_word][word] + 1) / (unigram_fd[prev_word] + vocab_size)
-    else:
-        bigram_prob = unigram_prob
 
     return 0.1 * unigram_prob + 0.9 * bigram_prob
 
 
-# Improve correction logic
-def correct_spell(statement, unigram_fd, bigram_cfd, vocab_size, correct_word):
-    words = statement.lower().split()
-    results = []
+def process_word(word, prev_word, vocab_size, start_index):
+    """Process a single word to find correction suggestions."""
+    if word in correct_word_set or word in top_common_words:
+        return None  # No correction needed
 
-    # Use top 10% most frequent words as threshold
-    common_words = {word for word, _ in unigram_fd.most_common(int(len(unigram_fd) * 0.3))}  # 30% top freq word
-    # common_words = {word for word, _ in unigram_fd.most_common(int(len(unigram_fd)*0.1))}
+    suggestions = generate_suggestions(word)
+    if not suggestions:
+        return None
 
-    for i, word in enumerate(words):
-        # Skip punctuation-only tokens
-        if re.fullmatch(r"[.,!?']+", word):
-            continue
+    # Score each suggestion
+    scored_suggestions = [
+        {
+            "replacement_substring": suggestion,
+            "replacement_substring_char_start": start_index,
+            "replacement_substring_char_end": start_index + len(suggestion) - 1,
+            "probability": calc_prob(suggestion, prev_word, vocab_size),
+            "edit_distance": edit_distance(word, suggestion, transpositions=True)
+        }
+        for suggestion in suggestions
+    ]
 
-        # Get previous word context
-        prev_word = words[i - 1] if i > 0 and words[i - 1] in unigram_fd else None
+    # Sort by probability (desc) and edit distance (asc)
+    sorted_suggestions = sorted(scored_suggestions, key=lambda x: (-x["probability"], x["edit_distance"]))
 
-        # Generate suggestions if:
-        # 1. Word is OOV (not in correct_word), or
-        # 2. Word is rare (not in top 10% frequent words)
-        if word not in unigram_fd or word not in common_words:
-            suggestions = generate_suggestions(word, correct_word)
-            if suggestions:
-                scored = []
-                for suggestion in suggestions:
-                    # Skip suggestion if same as original
-                    if suggestion == word:
-                        continue
+    return {
+        "original_substring": word,
+        "original_substring_char_start": start_index,
+        "original_substring_char_end": start_index + len(word) - 1,
+        "suggestions": sorted_suggestions,
+    }
 
-                    edit_dist = edit_distance(word, suggestion, transpositions=True)
-                    suggestion_prob = calc_prob(suggestion, prev_word, unigram_fd, bigram_cfd, vocab_size)
-                    error_prob = 0.7 ** edit_dist  # Less aggressive error model
-                    score = suggestion_prob * error_prob
-                    scored.append((suggestion, suggestion_prob, edit_dist, score))
 
-                if scored:
-                    # Sort by score and distance
-                    top_suggestions = sorted(scored, key=lambda x: (-x[3], x[2]))[:5]
-                    # top_suggestions = sorted(scored, key=lambda x: (-x[3], x[2]))[:5]
-                    results.append((word, top_suggestions))
+def correct_spell(statement, vocab_size):
+    """Find spelling mistakes and provide multiple correction suggestions."""
+    words = re.findall(r"\b\w+\b", statement.lower())  # Tokenize words
+    prev_word = None
 
-    return results
+    # Track character positions
+    char_positions = []
+    for match in re.finditer(r"\b\w+\b", statement):
+        char_positions.append((match.group(), match.start()))
+
+    # Process words in parallel
+    with ThreadPoolExecutor() as executor:
+        results = executor.map(lambda w: process_word(w[0], prev_word, vocab_size, w[1]), char_positions)
+
+    # Construct corrected response
+    content_to_replace = [r for r in results if r]
+
+    return {
+        "fixed": statement,  # No automatic correction applied
+        "text": statement,
+        "contentToReplace": content_to_replace,
+    }
 
 
 @app.route('/')
 def index():
-   print('Request for index page received')
-   return render_template('index.html')
+    return render_template('index.html')
+
 
 @app.route('/favicon.ico')
 def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'),
-                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 
 @app.route('/grammar-check', methods=['POST'])
 def grammar_check():
-   text = request.get_json()
+    text = request.get_json().get('text')
+    if not text:
+        return jsonify({'message': 'please send some text'})
 
-   if text:
-       unigram_fd, bigram_cfd = loaded_pickle_data
-       vocab_size = len(unigram_fd)
-       correct_word = list(unigram_fd.keys())
+    vocab_size = len(unigram_fd)
+    results = correct_spell(text, vocab_size)
 
-       results = correct_spell(text, unigram_fd, bigram_cfd, vocab_size, correct_word)
+    return jsonify(results)
 
-       return jsonify({'data': results})
-   else:
-       return jsonify({'message': 'please send some text'})
 
 @app.route('/sentiment-analysis', methods=['POST'])
 def sentiment_analysis():
-   text = request.get_json()
+    text = request.get_json()
+    if not text:
+        return jsonify({'message': 'please send some text'})
+    return jsonify({'data': text})
 
-   if text:
-       return jsonify({'data': text})
-   else:
-       return jsonify({'message': 'please send some text'})
 
 if __name__ == '__main__':
-   app.run()
+    app.run()
