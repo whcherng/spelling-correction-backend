@@ -18,6 +18,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull Git LFS Files
+        run: |
+            git lfs install
+            git lfs pull
 
       - name: Set up Python version
         uses: actions/setup-python@v5
