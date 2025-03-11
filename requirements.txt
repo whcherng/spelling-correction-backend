@@ -1,4 +1,6 @@
 Flask==3.0.0
 gunicorn
 requests
-nltk
+nltk~=3.9.1
+scikit-learn==1.6.1
+joblib~=1.4.2

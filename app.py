@@ -3,6 +3,8 @@ import pickle
 import re
 import difflib
 from concurrent.futures import ThreadPoolExecutor
+
+import joblib
 from nltk import edit_distance
 from flask import Flask, render_template, request, send_from_directory, jsonify
 
@@ -14,6 +16,9 @@ with open("pretrained_model.pkl", "rb") as f:
 
 correct_word_set = set(unigram_fd.keys())  # Fast lookup
 top_common_words = set(w for w, _ in unigram_fd.most_common(int(len(unigram_fd) * 0.3)))  # Top 30%
+
+with open("final_linearsvm_model.pkl", "rb") as f:
+    final_linearsvm_model = joblib.load(f)
 
 
 def generate_suggestions(word):
@@ -112,10 +117,16 @@ def grammar_check():
 
 @app.route('/sentiment-analysis', methods=['POST'])
 def sentiment_analysis():
-    text = request.get_json()
+    text = request.get_json().get('text')
+
     if not text:
         return jsonify({'message': 'please send some text'})
-    return jsonify({'data': text})
+
+    return jsonify({'prediction': {
+        "sentiment": final_linearsvm_model.predict([text])[0].item(),
+        "score": final_linearsvm_model.decision_function([text])[0].item()
+        }
+    })
 
 
 if __name__ == '__main__':
