@@ -86,8 +86,16 @@ def correct_spell(statement, vocab_size):
     # Construct corrected response
     content_to_replace = [r for r in results if r]
 
+    corrected_statement = list(statement)  # Convert to list for easy replacement
+    for correction in content_to_replace:
+        best_suggestion = correction["suggestions"][0]["replacement_substring"]
+        start = correction["original_substring_char_start"]
+        end = correction["original_substring_char_end"] + 1  # Include last character
+
+        corrected_statement[start:end] = best_suggestion  # Replace word in list
+
     return {
-        "fixed": statement,  # No automatic correction applied
+        "fixed": "".join(corrected_statement),  # Convert back to string
         "text": statement,
         "contentToReplace": content_to_replace,
     }
