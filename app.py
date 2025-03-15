@@ -5,11 +5,15 @@ import difflib
 from concurrent.futures import ThreadPoolExecutor
 
 import joblib
+import nltk
 from nltk import edit_distance, WordNetLemmatizer, word_tokenize
 from flask import Flask, render_template, request, send_from_directory, jsonify
 from nltk.corpus import stopwords
+from sklearn.metrics import roc_auc_score
 
 app = Flask(__name__)
+
+nltk.download('stopwords')
 
 # Load pre-trained language model
 with open("pretrained_model.pkl", "rb") as f:
@@ -18,8 +22,14 @@ with open("pretrained_model.pkl", "rb") as f:
 correct_word_set = set(unigram_fd.keys())  # Fast lookup
 top_common_words = set(w for w, _ in unigram_fd.most_common(int(len(unigram_fd) * 0.3)))  # Top 30%
 
-with open("final_linearsvm_model.pkl", "rb") as f:
+with open("final_linearsvm_model_v2.pkl", "rb") as f:
     final_linearsvm_model = joblib.load(f)
+
+with open("final_rf_model_v2.pkl", "rb") as f:
+    final_rf_model = joblib.load(f)
+
+with open("final_logistic_model_v2.pkl", "rb") as f:
+    final_logistic_model = joblib.load(f)
 
 
 def generate_suggestions(word):
@@ -179,12 +189,30 @@ def sentiment_analysis():
 
     processed_text = preprocess_text(text)
 
-    return jsonify({'prediction': {
-        "sentiment": final_linearsvm_model.predict([processed_text])[0].item(),
-        "score": final_linearsvm_model.decision_function([processed_text])[0].item()
-        }
-    })
+    model = request.get_json().get('model')
 
+    if not model:
+        return jsonify({'message': 'please select model'})
+
+    if model == 1:
+        return jsonify({'prediction': {
+            "sentiment": final_linearsvm_model.predict([processed_text])[0].item(),
+            "score": final_linearsvm_model.decision_function([processed_text])[0].item()
+        }
+        })
+
+    if model == 2:
+        return jsonify({'prediction': {
+            "sentiment": final_rf_model.predict([processed_text])[0].item()
+        }
+        })
+
+    if model == 3:
+        return jsonify({'prediction': {
+            "sentiment": final_logistic_model.predict([processed_text])[0].item(),
+            "score": final_logistic_model.decision_function([processed_text])[0].item()
+        }
+        })
 
 if __name__ == '__main__':
     app.run()
