@@ -5,8 +5,9 @@ import difflib
 from concurrent.futures import ThreadPoolExecutor
 
 import joblib
-from nltk import edit_distance
+from nltk import edit_distance, WordNetLemmatizer, word_tokenize
 from flask import Flask, render_template, request, send_from_directory, jsonify
+from nltk.corpus import stopwords
 
 app = Flask(__name__)
 
@@ -86,20 +87,66 @@ def correct_spell(statement, vocab_size):
     # Construct corrected response
     content_to_replace = [r for r in results if r]
 
-    corrected_statement = list(statement)  # Convert to list for easy replacement
-    for correction in content_to_replace:
-        best_suggestion = correction["suggestions"][0]["replacement_substring"]
-        start = correction["original_substring_char_start"]
-        end = correction["original_substring_char_end"] + 1  # Include last character
+    corrected_statement = []
+    words = statement.split()
 
-        corrected_statement[start:end] = best_suggestion  # Replace word in list
+    corrections_map = {correction["original_substring"]: correction["suggestions"][0]["replacement_substring"] for correction in content_to_replace}
+
+    for word in words:
+        if word.lower() in corrections_map:
+            corrected_statement.append(corrections_map[word.lower()])  # To add corrected word
+        else:
+            corrected_statement.append(word)
 
     return {
-        "fixed": "".join(corrected_statement),  # Convert back to string
+        "fixed": " ".join(corrected_statement),  # Convert back to string
         "text": statement,
         "contentToReplace": content_to_replace,
     }
 
+# Removing HTML tags, special characters, numbers, extra whitespace, and converting to lowercase
+def clean_text(text):
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = text.lower()
+    return text
+
+# Define negation terms to exclude from stopwords
+negation_words = {'not', 'no', 'never', 'nor', 'neither', 'none', 'nobody', 'nowhere', 'cannot', 'n\'t', 'nt'}
+
+# Update stopwords by removing negation terms
+stop_words = set(stopwords.words('english')) - negation_words
+
+# Initialize lemmatizer
+lemmatizer = WordNetLemmatizer()
+
+def preprocess_text(text):
+    text = clean_text(text)
+    words = word_tokenize(text)
+
+    # Lemmatize and remove non-negation stopwords
+    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
+
+    # Handle negation by tagging subsequent words
+    processed_words = []
+    negation = False
+    window = 0  # Number of words to tag after negation
+
+    for word in words:
+        if word in negation_words:
+            negation = True
+            window = 3  # Set window size (adjust as needed)
+            processed_words.append(word)
+        elif negation:
+            processed_words.append(f"{word}_NOT")
+            window -= 1
+            if window <= 0:
+                negation = False
+        else:
+            processed_words.append(word)
+
+    return ' '.join(processed_words)
 
 @app.route('/')
 def index():
@@ -130,9 +177,11 @@ def sentiment_analysis():
     if not text:
         return jsonify({'message': 'please send some text'})
 
+    processed_text = preprocess_text(text)
+
     return jsonify({'prediction': {
-        "sentiment": final_linearsvm_model.predict([text])[0].item(),
-        "score": final_linearsvm_model.decision_function([text])[0].item()
+        "sentiment": final_linearsvm_model.predict([processed_text])[0].item(),
+        "score": final_linearsvm_model.decision_function([processed_text])[0].item()
         }
     })
 
