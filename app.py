@@ -15,6 +15,7 @@ app = Flask(__name__)
 
 nltk.download('stopwords')
 nltk.download('punkt_tab')
+nltk.download('wordnet')
 
 # Load pre-trained language model
 with open("pretrained_model.pkl", "rb") as f:
