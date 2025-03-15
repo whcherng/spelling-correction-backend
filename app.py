@@ -14,6 +14,7 @@ from sklearn.metrics import roc_auc_score
 app = Flask(__name__)
 
 nltk.download('stopwords')
+nltk.download('punkt_tab')
 
 # Load pre-trained language model
 with open("pretrained_model.pkl", "rb") as f:
