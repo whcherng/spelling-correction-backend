@@ -205,16 +205,18 @@ def sentiment_analysis():
 
     if model == 2:
         return jsonify({'prediction': {
-            "sentiment": final_rf_model.predict([processed_text])[0].item()
+            "sentiment": final_rf_model.predict([processed_text])[0].item(),
+            "score": max(final_rf_model.predict_proba([processed_text])[0])
         }
         })
 
     if model == 3:
         return jsonify({'prediction': {
             "sentiment": final_logistic_model.predict([processed_text])[0].item(),
-            "score": final_logistic_model.decision_function([processed_text])[0].item()
+            "score": max(final_logistic_model.predict_proba([processed_text])[0])
         }
         })
+
 
 if __name__ == '__main__':
     app.run()
