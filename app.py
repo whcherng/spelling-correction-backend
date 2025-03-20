@@ -198,22 +198,19 @@ def sentiment_analysis():
 
     if model == 1:
         return jsonify({'prediction': {
-            "sentiment": final_linearsvm_model.predict([processed_text])[0].item(),
-            "score": final_linearsvm_model.decision_function([processed_text])[0].item()
+            "sentiment": final_linearsvm_model.predict([processed_text])[0].item()
         }
         })
 
     if model == 2:
         return jsonify({'prediction': {
-            "sentiment": final_rf_model.predict([processed_text])[0].item(),
-            "score": max(final_rf_model.predict_proba([processed_text])[0])
+            "sentiment": final_rf_model.predict([processed_text])[0].item()
         }
         })
 
     if model == 3:
         return jsonify({'prediction': {
-            "sentiment": final_logistic_model.predict([processed_text])[0].item(),
-            "score": max(final_logistic_model.predict_proba([processed_text])[0])
+            "sentiment": final_logistic_model.predict([processed_text])[0].item()
         }
         })
 
