@@ -9,10 +9,23 @@ import nltk
 from nltk import edit_distance, WordNetLemmatizer, word_tokenize
 from flask import Flask, render_template, request, send_from_directory, jsonify
 from nltk.corpus import stopwords
-from sklearn.metrics import roc_auc_score
 
 app = Flask(__name__)
 
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
+
+"""
+The code for serving spelling correction system
+"""
 nltk.download('stopwords')
 nltk.download('punkt_tab')
 nltk.download('wordnet')
@@ -23,15 +36,6 @@ with open("pretrained_model.pkl", "rb") as f:
 
 correct_word_set = set(unigram_fd.keys())  # Fast lookup
 top_common_words = set(w for w, _ in unigram_fd.most_common(int(len(unigram_fd) * 0.3)))  # Top 30%
-
-with open("final_linearsvm_model_v2.pkl", "rb") as f:
-    final_linearsvm_model = joblib.load(f)
-
-with open("final_rf_model_v2.pkl", "rb") as f:
-    final_rf_model = joblib.load(f)
-
-with open("final_logistic_model_v2.pkl", "rb") as f:
-    final_logistic_model = joblib.load(f)
 
 
 def generate_suggestions(word):
@@ -116,6 +120,37 @@ def correct_spell(statement, vocab_size):
         "contentToReplace": content_to_replace,
     }
 
+
+@app.route('/grammar-check', methods=['POST'])
+def grammar_check():
+    text = request.get_json().get('text')
+    if not text:
+        return jsonify({'message': 'please send some text'})
+
+    vocab_size = len(unigram_fd)
+    results = correct_spell(text, vocab_size)
+
+    return jsonify(results)
+
+
+"""
+End of the code for serving spelling correction system
+"""
+
+
+"""
+The code for serving sentiment analysis system
+"""
+with open("final_linearsvm_model_v2.pkl", "rb") as f:
+    final_linearsvm_model = joblib.load(f)
+
+with open("final_rf_model_v2.pkl", "rb") as f:
+    final_rf_model = joblib.load(f)
+
+with open("final_logistic_model_v2.pkl", "rb") as f:
+    final_logistic_model = joblib.load(f)
+
+
 # Removing HTML tags, special characters, numbers, extra whitespace, and converting to lowercase
 def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
@@ -123,6 +158,7 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()
     text = text.lower()
     return text
+
 
 # Define negation terms to exclude from stopwords
 negation_words = {'not', 'no', 'never', 'nor', 'neither', 'none', 'nobody', 'nowhere', 'cannot', 'n\'t', 'nt'}
@@ -132,6 +168,7 @@ stop_words = set(stopwords.words('english')) - negation_words
 
 # Initialize lemmatizer
 lemmatizer = WordNetLemmatizer()
+
 
 def preprocess_text(text):
     text = clean_text(text)
@@ -159,27 +196,6 @@ def preprocess_text(text):
             processed_words.append(word)
 
     return ' '.join(processed_words)
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/favicon.ico')
-def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
-
-
-@app.route('/grammar-check', methods=['POST'])
-def grammar_check():
-    text = request.get_json().get('text')
-    if not text:
-        return jsonify({'message': 'please send some text'})
-
-    vocab_size = len(unigram_fd)
-    results = correct_spell(text, vocab_size)
-
-    return jsonify(results)
 
 
 @app.route('/sentiment-analysis', methods=['POST'])
@@ -214,6 +230,10 @@ def sentiment_analysis():
         }
         })
 
+
+"""
+End of the code for serving sentiment analysis system
+"""
 
 if __name__ == '__main__':
     app.run()
